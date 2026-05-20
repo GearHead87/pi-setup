@@ -2,6 +2,17 @@ import { execFile } from "node:child_process";
 import { basename } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+const BROWSER_RELAY_URL = process.env.PI_BROWSER_NOTIFICATION_RELAY_URL ?? "http://127.0.0.1:48291/notify";
+
+interface BrowserNotificationPayload {
+	id: string;
+	title: string;
+	projectName: string;
+	projectPath: string;
+	model?: string;
+	timestamp: number;
+}
+
 function cleanText(text: string): string {
 	return text.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/[;]+/g, ",").replace(/\s+/g, " ").trim();
 }
@@ -43,7 +54,7 @@ function notifyLinux(title: string, body: string): void {
 	execFile("notify-send", [title, body], () => {});
 }
 
-function sendNotification(title: string, body: string): void {
+function sendNativeNotification(title: string, body: string): void {
 	if (process.env.WT_SESSION) {
 		notifyWindows(title, body);
 		return;
@@ -62,12 +73,53 @@ function sendNotification(title: string, body: string): void {
 	notifyOSC777(title, body);
 }
 
+function generateId(): string {
+	if (globalThis.crypto?.randomUUID) {
+		return globalThis.crypto.randomUUID();
+	}
+	return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function sendBrowserNotification(payload: BrowserNotificationPayload): Promise<void> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 1500);
+
+	try {
+		await fetch(BROWSER_RELAY_URL, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+			},
+			body: JSON.stringify(payload),
+			signal: controller.signal,
+		});
+	} catch {
+		// Ignore relay failures so native notifications still work.
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
 export default function projectFinishNotify(pi: ExtensionAPI) {
 	pi.on("agent_end", async (_event, ctx) => {
 		const projectName = basename(ctx.cwd) || ctx.cwd;
-		const modelText = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "no model";
-		const title = `Pi finished · ${projectName}`;
-		const body = `Project: ${ctx.cwd} | Model: ${modelText}`;
-		sendNotification(title, body);
+		const modelText = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+		const nativeTitle = `Pi finished · ${projectName}`;
+		const nativeBody = modelText
+			? `Project: ${ctx.cwd} | Model: ${modelText}`
+			: `Project: ${ctx.cwd}`;
+
+		sendNativeNotification(nativeTitle, nativeBody);
+
+		const payload: BrowserNotificationPayload = {
+			id: generateId(),
+			title: "Task complete",
+			projectName,
+			projectPath: ctx.cwd,
+			model: modelText,
+			timestamp: Date.now(),
+		};
+
+		void sendBrowserNotification(payload);
 	});
 }
