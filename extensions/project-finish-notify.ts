@@ -1,8 +1,45 @@
 import { execFile } from "node:child_process";
-import { basename } from "node:path";
+import { readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+function loadDotEnv(path: string): void {
+	let raw: string;
+	try {
+		raw = readFileSync(path, "utf8");
+	} catch {
+		return;
+	}
+
+	for (const line of raw.split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (!trimmed || trimmed.startsWith("#")) {
+			continue;
+		}
+		const eq = trimmed.indexOf("=");
+		if (eq === -1) {
+			continue;
+		}
+		const key = trimmed.slice(0, eq).trim();
+		let value = trimmed.slice(eq + 1).trim();
+		if (
+			(value.startsWith('"') && value.endsWith('"')) ||
+			(value.startsWith("'") && value.endsWith("'"))
+		) {
+			value = value.slice(1, -1);
+		}
+		if (key && process.env[key] === undefined) {
+			process.env[key] = value;
+		}
+	}
+}
+
+const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
+loadDotEnv(join(EXTENSION_DIR, ".env"));
+
 const BROWSER_RELAY_URL = process.env.PI_BROWSER_NOTIFICATION_RELAY_URL ?? "http://127.0.0.1:48291/notify";
+const BROWSER_RELAY_API_KEY = process.env.PI_NOTIFICATION_RELAY_API_KEY;
 
 interface BrowserNotificationPayload {
 	id: string;
@@ -84,12 +121,17 @@ async function sendBrowserNotification(payload: BrowserNotificationPayload): Pro
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 1500);
 
+	const headers: Record<string, string> = {
+		"content-type": "application/json",
+	};
+	if (BROWSER_RELAY_API_KEY) {
+		headers["x-api-key"] = BROWSER_RELAY_API_KEY;
+	}
+
 	try {
 		await fetch(BROWSER_RELAY_URL, {
 			method: "POST",
-			headers: {
-				"content-type": "application/json",
-			},
+			headers,
 			body: JSON.stringify(payload),
 			signal: controller.signal,
 		});
