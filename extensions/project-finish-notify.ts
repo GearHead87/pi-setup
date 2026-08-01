@@ -52,40 +52,11 @@ function notifyOSC99(title: string, body: string): void {
   process.stdout.write(`\x1b]99;i=1:p=body;${cleanText(body)}\x1b\\`);
 }
 
-function escapePowerShell(text: string): string {
-  return text.replace(/'/g, "''");
-}
-
-function windowsToastScript(title: string, body: string): string {
-  const type = 'Windows.UI.Notifications';
-  const mgr = `[${type}.ToastNotificationManager, ${type}, ContentType = WindowsRuntime]`;
-  const template = `[${type}.ToastTemplateType]::ToastText02`;
-  const toast = `[${type}.ToastNotification]::new($xml)`;
-  const safeTitle = escapePowerShell(title);
-  const safeBody = escapePowerShell(body);
-  return [
-    `${mgr} > $null`,
-    `$xml = [${type}.ToastNotificationManager]::GetTemplateContent(${template})`,
-    `$xml.GetElementsByTagName('text')[0].AppendChild($xml.CreateTextNode('${safeTitle}')) > $null`,
-    `$xml.GetElementsByTagName('text')[1].AppendChild($xml.CreateTextNode('${safeBody}')) > $null`,
-    `[${type}.ToastNotificationManager]::CreateToastNotifier('Pi').Show(${toast})`,
-  ].join('; ');
-}
-
-function notifyWindows(title: string, body: string): void {
-  execFile('powershell.exe', ['-NoProfile', '-Command', windowsToastScript(title, body)], () => {});
-}
-
 function notifyLinux(title: string, body: string): void {
   execFile('notify-send', [title, body], () => {});
 }
 
 function sendNativeNotification(title: string, body: string): void {
-  if (process.env.WT_SESSION) {
-    notifyWindows(title, body);
-    return;
-  }
-
   if (process.platform === 'linux' && (process.env.DISPLAY || process.env.WAYLAND_DISPLAY)) {
     notifyLinux(title, body);
     return;
