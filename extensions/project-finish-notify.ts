@@ -53,7 +53,7 @@ function notifyOSC99(title: string, body: string): void {
 }
 
 function notifyLinux(title: string, body: string): void {
-  execFile('notify-send', [title, body], () => {});
+  execFile('notify-send', ['--expire-time=0', title, body], () => {});
 }
 
 function sendNativeNotification(title: string, body: string): void {
